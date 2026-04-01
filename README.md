@@ -24,7 +24,7 @@ If you want the darker built-in variant:
 - Fugitive Git workflow
 - Git change signs in the gutter
 - Treesitter highlighting and incremental selection
-- Built-in LSP setup for multiple languages
+- Built-in LSP setup for Python, JavaScript, TypeScript, Lua, CSS, and JSON
 - `nvim-cmp` completion popup
 - GitHub Copilot as a completion source
 - LuaSnip snippet support
@@ -146,6 +146,8 @@ Completion sources in the popup:
 Typical autocomplete stack:
 - Python: `pyright` + `nvim-cmp` + optional Copilot
 - JavaScript / TypeScript / JSX / TSX: `ts_ls` + `nvim-cmp` + optional Copilot
+- Lua: `lua_ls` + `nvim-cmp`
+- CSS / JSON: `cssls` and `jsonls`
 
 ## Treesitter
 
@@ -219,26 +221,14 @@ To verify Copilot:
 
 ## LSP Server Binaries
 
-The Neovim config enables these servers, but you still need the binaries installed on your system:
+The Neovim config currently enables these servers, and you still need the binaries installed on your system:
 
 ```text
 lua-language-server
 pyright-langserver
-vscode-css-language-server
-intelephense
 typescript
 typescript-language-server
-zls
-nil
-rust-analyzer
-clangd
-c3-lsp
-serve-d
+vscode-css-language-server
 vscode-json-language-server
-haskell-language-server-wrapper
-gopls
-templ
-alejandra
-rustfmt
 node
 ```

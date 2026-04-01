@@ -91,10 +91,8 @@ vim.api.nvim_create_autocmd("LspAttach", {
       })
     end
 
-    local excluded_filetypes = { php = true, c = true, cpp = true }
     if not client:supports_method("textDocument/willSaveWaitUntil")
       and client:supports_method("textDocument/formatting")
-      and not excluded_filetypes[vim.bo[buf].filetype]
     then
       vim.api.nvim_clear_autocmds({ group = lsp_format_group, buffer = buf })
 
@@ -126,6 +124,87 @@ vim.lsp.config.lua_ls = {
   },
 }
 
+local function find_uv_workspace_root(start_dir)
+  local normalized = vim.fs.normalize(start_dir)
+  local dirs = { normalized }
+
+  for parent in vim.fs.parents(normalized) do
+    table.insert(dirs, parent)
+  end
+
+  for _, dir in ipairs(dirs) do
+    local pyproject = dir .. "/pyproject.toml"
+    if vim.fn.filereadable(pyproject) == 1 then
+      for _, line in ipairs(vim.fn.readfile(pyproject)) do
+        if line:match("^%[tool%.uv%.workspace%]") then
+          return dir
+        end
+      end
+    end
+  end
+
+  return nil
+end
+
+local function is_uv_workspace_member(workspace_root, project_root)
+  local pyproject = workspace_root .. "/pyproject.toml"
+  if vim.fn.filereadable(pyproject) == 0 then
+    return false
+  end
+
+  local relative_project = vim.fs.relpath(workspace_root, project_root)
+  if not relative_project then
+    return false
+  end
+
+  local in_workspace_section = false
+
+  for _, line in ipairs(vim.fn.readfile(pyproject)) do
+    if line:match("^%[tool%.uv%.workspace%]") then
+      in_workspace_section = true
+    elseif in_workspace_section and line:match("^%[.+%]") then
+      break
+    elseif in_workspace_section then
+      for member in line:gmatch('"([^"]+)"') do
+        if member == relative_project then
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+local function get_python_path(root_dir)
+  local venv_python = root_dir .. "/.venv/bin/python"
+  local workspace_root = find_uv_workspace_root(root_dir)
+
+  if workspace_root and workspace_root ~= root_dir and is_uv_workspace_member(workspace_root, root_dir) then
+    local workspace_python = workspace_root .. "/.venv/bin/python"
+    if vim.fn.executable(workspace_python) == 1 then
+      return workspace_python
+    end
+  end
+
+  if vim.fn.executable(venv_python) == 1 then
+    return venv_python
+  end
+
+  if vim.env.VIRTUAL_ENV then
+    local active_python = vim.env.VIRTUAL_ENV .. "/bin/python"
+    if vim.fn.executable(active_python) == 1 then
+      return active_python
+    end
+  end
+
+  if vim.fn.executable("python3") == 1 then
+    return vim.fn.exepath("python3")
+  end
+
+  return vim.fn.exepath("python")
+end
+
 vim.lsp.config.pyright = {
   cmd = { "pyright-langserver", "--stdio" },
   filetypes = { "python" },
@@ -137,13 +216,36 @@ vim.lsp.config.pyright = {
     "Pipfile",
     ".git",
   },
+  before_init = function(_, config)
+    local root_dir = config.root_dir or vim.fn.getcwd()
+    config.settings = config.settings or {}
+    config.settings.python = config.settings.python or {}
+    config.settings.python.pythonPath = get_python_path(root_dir)
+  end,
   settings = {
     python = {
       analysis = {
         autoSearchPaths = true,
         useLibraryCodeForTypes = true,
         diagnosticMode = "workspace",
+        extraPaths = { "." },
       },
+    },
+  },
+}
+
+vim.lsp.config.ts_ls = {
+  cmd = { "typescript-language-server", "--stdio" },
+  filetypes = {
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+  },
+  root_markers = { "package.json", "tsconfig.json", "jsconfig.json", ".git" },
+  settings = {
+    completions = {
+      completeFunctionCalls = true,
     },
   },
 }
@@ -159,171 +261,16 @@ vim.lsp.config.cssls = {
   },
 }
 
-vim.lsp.config.intelephense = {
-  cmd = { "intelephense", "--stdio" },
-  filetypes = { "php" },
-  root_markers = { "composer.json", ".git" },
-  settings = {
-    intelephense = {
-      files = {
-        maxSize = 5000000,
-      },
-    },
-  },
-}
-
-vim.lsp.config.ts_ls = {
-  cmd = { "typescript-language-server", "--stdio" },
-  filetypes = {
-    "javascript",
-    "javascriptreact",
-    "javascript.jsx",
-    "typescript",
-    "typescriptreact",
-    "typescript.tsx",
-  },
-  root_markers = { "package.json", "tsconfig.json", "jsconfig.json", ".git" },
-  settings = {
-    completions = {
-      completeFunctionCalls = true,
-    },
-  },
-}
-
-vim.lsp.config.zls = {
-  cmd = { "zls" },
-  filetypes = { "zig", "zir" },
-  root_markers = { "zls.json", "build.zig", ".git" },
-  settings = {
-    zls = {
-      enable_build_on_save = true,
-      build_on_save_step = "install",
-      warn_style = false,
-      enable_snippets = true,
-    },
-  },
-}
-
-vim.lsp.config.nil_ls = {
-  cmd = { "nil" },
-  filetypes = { "nix" },
-  root_markers = { "flake.nix", "default.nix", ".git" },
-  settings = {
-    ["nil"] = {
-      formatting = {
-        command = { "alejandra" },
-      },
-    },
-  },
-}
-
-vim.lsp.config.rust_analyzer = {
-  cmd = { "rust-analyzer" },
-  filetypes = { "rust" },
-  root_markers = { "Cargo.toml", "rust-project.json", ".git" },
-  settings = {
-    ["rust-analyzer"] = {
-      cargo = { allFeatures = true },
-      formatting = {
-        command = { "rustfmt" },
-      },
-    },
-  },
-}
-
-vim.lsp.config.clangd = {
-  cmd = {
-    "clangd",
-    "--background-index",
-    "--clang-tidy",
-    "--header-insertion=never",
-    "--completion-style=detailed",
-    "--query-driver=/nix/store/*-gcc-*/bin/gcc*,/nix/store/*-clang-*/bin/clang*,/run/current-system/sw/bin/cc*",
-  },
-  filetypes = { "c", "cpp", "objc", "objcpp" },
-  root_markers = { "compile_commands.json", ".clangd", "configure.ac", "Makefile", ".git" },
-  init_options = {
-    fallbackFlags = { "-std=c23" },
-  },
-}
-
-vim.lsp.config.c3_lsp = {
-  cmd = { "c3-lsp" },
-  filetypes = { "c3" },
-  root_markers = { "project.json", ".git" },
-}
-
-vim.lsp.config.serve_d = {
-  cmd = { "serve-d" },
-  filetypes = { "d" },
-  root_markers = { "dub.sdl", "dub.json", ".git" },
-}
-
 vim.lsp.config.jsonls = {
   cmd = { "vscode-json-language-server", "--stdio" },
   filetypes = { "json", "jsonc" },
   root_markers = { "package.json", ".git", "config.jsonc" },
 }
 
-vim.lsp.config.hls = {
-  cmd = { "haskell-language-server-wrapper", "--lsp" },
-  filetypes = { "haskell", "lhaskell" },
-  root_markers = { "stack.yaml", "cabal.project", "package.yaml", "*.cabal", "hie.yaml", ".git" },
-  settings = {
-    haskell = {
-      formattingProvider = "fourmolu",
-      plugin = {
-        semanticTokens = { globalOn = false },
-      },
-    },
-  },
-}
-
-vim.lsp.config.gopls = {
-  cmd = { "gopls" },
-  filetypes = { "go", "gomod", "gowork", "gotmpl" },
-  root_markers = { "go.mod", "go.work", ".git" },
-  settings = {
-    gopls = {
-      analyses = {
-        unusedparams = false,
-        ST1003 = false,
-        ST1000 = false,
-      },
-      staticcheck = true,
-    },
-  },
-}
-
-vim.lsp.config.templ = {
-  cmd = { "templ", "lsp" },
-  filetypes = { "templ" },
-  root_markers = { "go.mod", ".git" },
-}
-
-vim.filetype.add({
-  extension = {
-    h = "c",
-    c3 = "c3",
-    d = "d",
-    templ = "templ",
-  },
-})
-
 vim.lsp.enable({
   "lua_ls",
   "pyright",
-  "cssls",
-  "intelephense",
   "ts_ls",
-  "zls",
-  "nil_ls",
-  "rust_analyzer",
-  "clangd",
-  "c3_lsp",
-  "serve_d",
+  "cssls",
   "jsonls",
-  "hls",
-  "gopls",
-  "templ",
 })
