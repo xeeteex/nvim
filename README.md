@@ -221,6 +221,8 @@ To verify Copilot:
 
 ## LSP Server Binaries
 
+
+
 The Neovim config currently enables these servers, and you still need the binaries installed on your system:
 
 ```text
